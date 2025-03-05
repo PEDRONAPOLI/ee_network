@@ -1,0 +1,170 @@
+//#define EIGENLIB			// uncomment to use Eigen linear algebra library
+
+#include "fun_head_fast.h"
+
+// do not add Equations in this area
+
+MODELBEGIN
+     
+ /********************************************************************
+  2) The "network" equation
+     - Initialize the network at step == 1
+     - Save the network only at multiples of 50 steps
+********************************************************************/    
+EQUATION("AddAgents")
+/*
+  Creates new agents each period and only assigns a Node ID
+  to objects that don't already have one.
+*/
+
+  int step = (int) V("TimeStep");
+  
+  // Example: add 10 new agents each period
+  int newAgents = 3;
+  
+  for (int i = 0; i < newAgents; i++)
+  {
+    // 1) Create a new LSD object of type "agents"
+    object *a = ADDOBJ("agents");
+    
+    // 2) Initialize attributes for the new agent
+    // Set random integer values in [1, 99]
+    WRITES(a, "alpha", 1 + floor(RND * 99));
+    WRITES(a, "beta",  1 + floor(RND * 99));
+    WRITES(a, "gamma", 1 + floor(RND * 99));
+    WRITES(a, "prox",  1 + floor(RND * 99));
+    
+    // Set fixed parameter values
+    WRITES(a, "prob",    0.5);
+    WRITES(a, "nsamples", 5);
+    WRITES(a, "epsilon", 10);
+    
+    // Initialize the _link variable (if not already initialized by default)
+    WRITES(a, "_link", 0);
+    
+    // 3) Check if 'a' already has a Node ID
+    double existingNodeID = V_NODEIDS(a);  // returns 0 if 'a' is not a node
+    
+    // 4) If not a node yet, assign a Node ID.
+    // Use COUNT("agents") + 1 so that each agent's node ID reflects its order of creation.
+    if (existingNodeID == 0)
+    {
+      long newID = (long)(COUNT("agents") + 1);
+      ADDNODES(a, newID, "");
+    }
+  }
+  
+  // Return the number of agents added
+  RESULT(newAgents)
+
+/********************************************************************
+  2) The "network" equation
+     - Initialize the network at step == 1
+     - Save the network only at multiples of 50 steps
+********************************************************************/
+
+EQUATION("TimeStep")
+
+  // Simply increment the previous value by 1
+  RESULT( CURRENT + 1 )
+
+
+/********************************************************************
+  2) The "network" equation
+     - Initialize the network at step == 1
+     - Save the network only at multiples of 50 steps
+********************************************************************/
+EQUATION("network")
+
+  // Convert TimeStep to an integer
+  int step = (int) V("TimeStep");
+
+  // If this is the first step, initialize the network
+  if ( step == 1 )
+  {
+    INIT_NET("agents", "DISCONNECTED", 0);
+  }
+
+  // Save the network every 50 steps
+  if ( step % 1 == 0 )
+  {
+    // Build a file name using both the run number (RUN) and current step
+    char netName[64];
+    sprintf(netName, "network_t%d", step);
+
+    // Save the current network
+    SAVE_NET("agents", netName);
+  }
+
+  RESULT(0)
+  
+  
+/********************************************************************
+  3) The "_link" equation
+     - Attempt 'nSamples' random draws to form links
+     - Only create a link if none already exists (duplicate-check)
+********************************************************************/
+
+EQUATION("_link")
+/*
+  This equation attempts to create links between agents. For each of nSamples attempts,
+  an agent is drawn at random (each agent has "prob" = 1) and, if conditions are met, 
+  a link is created only if it does not already exist.
+*/
+
+    v[0] = 0; // count of links created in this time step
+    double myAlpha = V("alpha");
+    double myBeta  = V("beta");
+    double myGamma = V("gamma");
+    double myProx  = V("prox");
+    double epsilon = V("epsilon");
+    int nSamples   = (int) V("nsamples"); // number of draws
+
+    // Attempt nSamples draws
+    for ( int i = 0; i < nSamples; i++ )
+    {
+        // Draw an agent at random (each agent has "prob" = 1)
+        object *cur = RNDDRAW("agents", "prob");
+        
+        // If no agent is found, exit the loop
+        if( cur == NULL )
+            break;
+        
+        // Avoid linking with yourself
+        if( cur == THIS )
+            continue;
+        
+        // Get the drawn agent's attributes
+        double curAlpha = VS(cur, "alpha");
+        double curBeta  = VS(cur, "beta");
+        double curGamma = VS(cur, "gamma");
+        double curProx  = VS(cur, "prox");
+        
+        // Conditions: One agent must have a higher attribute in some measure than the other,
+        // and their "prox" values must be close.
+        bool curHasMore = ( curAlpha > myAlpha || curBeta > myBeta || curGamma > myGamma );
+        bool iHaveMore  = ( myAlpha > curAlpha || myBeta > curBeta || myGamma > curGamma );
+        bool isClose    = ( fabs(curProx - myProx) <= epsilon );
+        
+        if ( curHasMore && iHaveMore && isClose )
+        {
+            // Only create the link if it does not already exist.
+            if (  SEARCH_LINKS( THIS, (long) V_NODEIDS(cur) ) == NULL )
+            {
+                ADDLINK(cur);
+                v[0]++;
+            }
+        }
+    }
+RESULT( v[0] )
+
+
+
+MODELEND
+
+// do not add Equations in this area
+
+void close_sim( void )
+{
+	// close simulation special commands go here
+}
